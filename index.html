@@ -408,18 +408,40 @@
   <div id="screen-mp-lobby" class="screen">
     <div class="panel" style="max-width:460px;text-align:center;">
       <div class="panel-title">Multiplayer</div>
-      <div class="flex-row" style="margin-bottom:18px;">
-        <button class="btn" onclick="createRoom()"><span>Create Room</span></button>
-        <span style="color:var(--dim);font-size:12px;">or</span>
-        <button class="btn btn-green" onclick="showJoinRoom()"><span>Join Room</span></button>
-      </div>
-      <div id="mp-join-section" style="display:none;">
-        <input class="text-input" id="join-code-input" placeholder="Enter Room Code" maxlength="6" oninput="this.value=this.value.toUpperCase()"/>
-        <div class="flex-row" style="margin-top:12px;">
-          <button class="btn btn-green" onclick="joinRoom()"><span>Join</span></button>
+
+      <!-- CREATE section -->
+      <div id="mp-create-section">
+        <div class="section-title" style="justify-content:center;margin-bottom:10px;">Create a Room</div>
+        <div style="font-size:12px;color:var(--dim);margin-bottom:10px;">
+          Choose a 6-character code or leave blank for a random one
+        </div>
+        <input class="text-input" id="create-code-input"
+          placeholder="Custom 6-char code (optional)"
+          maxlength="6"
+          style="margin-bottom:12px;"
+          oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')"/>
+        <div class="flex-row">
+          <button class="btn btn-green" onclick="createRoom()"><span>Create Room</span></button>
         </div>
       </div>
-      <button class="btn btn-red" style="margin-top:18px;" onclick="showScreen('screen-menu')"><span>← Back</span></button>
+
+      <div style="margin:16px 0;display:flex;align-items:center;gap:10px;">
+        <div style="flex:1;height:1px;background:var(--border);"></div>
+        <span style="color:var(--dim);font-size:12px;font-family:'Share Tech Mono',monospace;">OR</span>
+        <div style="flex:1;height:1px;background:var(--border);"></div>
+      </div>
+
+      <!-- JOIN section -->
+      <div>
+        <div class="section-title" style="justify-content:center;margin-bottom:10px;">Join a Room</div>
+        <input class="text-input" id="join-code-input" placeholder="Enter Room Code" maxlength="6"
+          oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')"/>
+        <div class="flex-row" style="margin-top:12px;">
+          <button class="btn" onclick="joinRoom()"><span>Join Room</span></button>
+        </div>
+      </div>
+
+      <button class="btn btn-red" style="margin-top:20px;" onclick="showScreen('screen-menu')"><span>← Back</span></button>
     </div>
   </div>
 
@@ -953,7 +975,31 @@ function resetMp() {
 }
 
 window.createRoom = async function () {
-  const roomId = genRoomCode();
+  const customInput = document.getElementById('create-code-input').value.trim().toUpperCase();
+
+  let roomId;
+  if (customInput.length > 0) {
+    // Validate: exactly 6 alphanumeric chars
+    if (!/^[A-Z0-9]{6}$/.test(customInput)) {
+      notify('Code must be exactly 6 letters/numbers', 'red'); return;
+    }
+    // Check availability
+    const existing = await get(ref(db, `rooms/${customInput}`));
+    if (existing.exists() && existing.val().status !== 'finished') {
+      notify(`"${customInput}" is already taken — try another`, 'red'); return;
+    }
+    roomId = customInput;
+  } else {
+    // Generate a random code that isn't already in use
+    let attempts = 0;
+    do {
+      roomId = genRoomCode();
+      const existing = await get(ref(db, `rooms/${roomId}`));
+      if (!existing.exists() || existing.val().status === 'finished') break;
+      attempts++;
+    } while (attempts < 10);
+  }
+
   mpRoomId = roomId;
   mpRole = 'host';
   resetMp();
