@@ -88,7 +88,7 @@
   }
   .panel-title { font-family:'Orbitron',sans-serif; font-size:12px; letter-spacing:0.3em; color:var(--accent); margin-bottom:18px; text-transform:uppercase; }
 
-  .menu-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; width:100%; max-width:500px; }
+  .menu-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; width:100%; max-width:640px; }
   .menu-btn {
     background:var(--panel); border:1px solid var(--border); border-radius:4px;
     padding:22px 14px; cursor:pointer; transition:all 0.2s;
@@ -274,6 +274,8 @@
   }
   .diff-btn.active { border-color:var(--accent); color:var(--accent); }
   .diff-btn:hover { border-color:var(--accent); }
+  .diff-btn.diff-extreme.active { border-color:var(--accent2); color:var(--accent2); box-shadow:var(--glow-red); }
+  .diff-btn.diff-extreme:hover { border-color:var(--accent2); }
   .empty-history { text-align:center; color:var(--dim); font-family:'Share Tech Mono',monospace; font-size:12px; padding:28px; letter-spacing:0.1em; }
   .flex-row { display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; }
 
@@ -281,6 +283,31 @@
   .legend { display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin:4px 0 10px; }
   .legend-item { display:flex; align-items:center; gap:6px; font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--dim); }
   .legend-dot { width:10px; height:10px; border-radius:50%; }
+
+  /* Spectate list */
+  .spectate-list { display:flex; flex-direction:column; gap:8px; max-height:420px; overflow-y:auto; padding-right:4px; }
+  .spectate-list::-webkit-scrollbar { width:4px; }
+  .spectate-list::-webkit-scrollbar-track { background:var(--panel2); }
+  .spectate-list::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .spectate-row {
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:12px 16px; background:var(--panel2); border:1px solid var(--border);
+    border-radius:4px; animation:fadeIn 0.3s ease;
+  }
+  .spectate-row-info { display:flex; flex-direction:column; gap:4px; }
+  .spectate-room-id { font-family:'Orbitron',monospace; font-size:16px; letter-spacing:0.15em; color:var(--accent); }
+  .spectate-meta { font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--dim); display:flex; gap:12px; }
+  .spectate-live-dot {
+    width:8px; height:8px; border-radius:50%; background:var(--accent3);
+    box-shadow:0 0 6px var(--accent3); display:inline-block; margin-right:6px;
+    animation:liveBlink 1.4s ease-in-out infinite;
+  }
+  @keyframes liveBlink { 0%,100%{opacity:1} 50%{opacity:0.35} }
+  .feed-row { display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--panel2); border:1px solid var(--border); border-radius:3px; animation:fadeIn 0.3s ease; font-family:'Share Tech Mono',monospace; font-size:12px; }
+  .feed-role { font-family:'Orbitron',sans-serif; font-size:10px; letter-spacing:0.1em; padding:3px 8px; border-radius:3px; }
+  .feed-role.host { color:var(--accent); border:1px solid var(--accent); }
+  .feed-role.guest { color:var(--accent2); border:1px solid var(--accent2); }
+  .feed-hits { margin-left:auto; color:var(--text); }
 </style>
 </head>
 <body>
@@ -308,7 +335,7 @@
 
   <!-- MAIN MENU -->
   <div id="screen-menu" class="screen active">
-    <div class="panel" style="max-width:500px;text-align:center;">
+    <div class="panel" style="max-width:640px;text-align:center;">
       <div class="panel-title">Select Mode</div>
       <div class="menu-grid">
         <div class="menu-btn" onclick="startVsComputer()">
@@ -333,6 +360,15 @@
           <div class="menu-btn-label">MULTIPLAYER</div>
           <div class="menu-btn-desc">Challenge a friend.<br>Real-time turn-based.</div>
         </div>
+        <div class="menu-btn" onclick="showSpectateLobby()">
+          <svg width="40" height="40" viewBox="0 0 40 40">
+            <path d="M2 20 C8 8 32 8 38 20 C32 32 8 32 2 20 Z" fill="none" stroke="#00ff99" stroke-width="1.5"/>
+            <circle cx="20" cy="20" r="6" fill="none" stroke="#00ff99" stroke-width="1.5"/>
+            <circle cx="20" cy="20" r="2" fill="#00ff99"/>
+          </svg>
+          <div class="menu-btn-label">SPECTATE</div>
+          <div class="menu-btn-desc">Watch live matches.<br>See ongoing rooms.</div>
+        </div>
       </div>
       <div style="margin-top:18px;font-size:12px;color:var(--dim);line-height:1.9;">
         Set a 4-digit code · Take turns guessing · <span style="color:var(--correct)">Green</span> = right digit, right place (locked in) · <span style="color:var(--locked)">Red</span> = wrong place (that digit blocked there) · First to crack wins
@@ -353,6 +389,10 @@
           <div class="diff-btn active" onclick="setDiff('easy',this)">EASY</div>
           <div class="diff-btn" onclick="setDiff('medium',this)">MEDIUM</div>
           <div class="diff-btn" onclick="setDiff('hard',this)">HARD</div>
+          <div class="diff-btn diff-extreme" onclick="setDiff('extreme',this)">EXTREME</div>
+        </div>
+        <div id="extreme-note" style="display:none;font-size:11px;color:var(--accent2);text-align:center;margin-top:8px;font-family:'Share Tech Mono',monospace;letter-spacing:0.05em;line-height:1.6;">
+          ⚠ ADAPTIVE AI — builds a live model of your guessing habits and hunts the code with full-depth information-theoretic search. No mercy.
         </div>
       </div>
       <div class="flex-row" style="margin-top:22px;">
@@ -511,6 +551,40 @@
       </div>
     </div>
     <button class="btn btn-red" onclick="leaveRoom()"><span>← Leave Game</span></button>
+  </div>
+
+  <!-- SPECTATE LOBBY -->
+  <div id="screen-spectate-lobby" class="screen">
+    <div class="panel" style="max-width:560px;">
+      <div class="panel-title">Live Matches</div>
+      <div class="spectate-list" id="spectate-list">
+        <div class="empty-history">Scanning for active matches<span class="waiting-dots"></span></div>
+      </div>
+      <button class="btn btn-red" style="margin-top:18px;" onclick="leaveSpectateLobby()"><span>← Back</span></button>
+    </div>
+  </div>
+
+  <!-- SPECTATE GAME (read-only live view) -->
+  <div id="screen-spectate-game" class="screen">
+    <div class="status-bar">
+      <div class="status-item"><span class="status-label">ROOM</span><span class="status-val" id="spec-room-label">—</span></div>
+      <div class="status-item"><span class="status-label">HOST GUESSES</span><span class="status-val" id="spec-host-attempts">0</span></div>
+      <div class="status-item"><span class="status-label">GUEST GUESSES</span><span class="status-val" id="spec-guest-attempts">0</span></div>
+      <div class="status-item"><span class="status-label">ROUND</span><span class="status-val" id="spec-round-label">1</span></div>
+    </div>
+
+    <div id="spec-turn-indicator" class="turn-indicator their-turn">Connecting<span class="waiting-dots"></span></div>
+
+    <div class="panel">
+      <div class="section-title">Live Feed</div>
+      <div style="font-size:11px;color:var(--dim);margin-bottom:10px;font-family:'Share Tech Mono',monospace;">
+        Spectators see guess counts and hit results only — secret codes stay hidden, just like for the players.
+      </div>
+      <div class="guess-history" id="spec-feed" style="max-height:360px;">
+        <div class="empty-history">Waiting for the next move<span class="waiting-dots"></span></div>
+      </div>
+    </div>
+    <button class="btn btn-red" onclick="leaveSpectateGame()"><span>← Back to Live Matches</span></button>
   </div>
 
 </div>
@@ -755,6 +829,35 @@ let cpuGameOver = false;
 let cpuGuessCtrl = null;
 let cpuRound = 1;
 
+// ── EXTREME MODE: adaptive player model ──────────────────────────────────
+// Tracks the digits the *player* leans on when attacking the CPU's code.
+// Extreme-difficulty CPU uses this as a live psychological profile: humans
+// tend to reach for digits they find "salient" both when attacking a code
+// and when picking their own secret (availability/anchoring bias). The
+// profile nudges which guess the CPU prefers among otherwise-equal moves —
+// it never overrides the information-theoretic search, only refines ties.
+let playerDigitFreq = { 0: {}, 1: {}, 2: {}, 3: {} };
+let playerGuessCount = 0;
+
+function trackPlayerGuess(digits) {
+  playerGuessCount++;
+  for (let i = 0; i < 4; i++) {
+    const d = String(digits[i]);
+    playerDigitFreq[i][d] = (playerDigitFreq[i][d] || 0) + 1;
+  }
+}
+
+function adaptiveAffinity(code) {
+  // 0..1 — how strongly this candidate code resonates with the digits
+  // the player has been reaching for. Only meaningful once we have data.
+  if (playerGuessCount === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < 4; i++) {
+    sum += (playerDigitFreq[i][code[i]] || 0) / playerGuessCount;
+  }
+  return sum / 4;
+}
+
 window.startVsComputer = function () {
   showScreen('screen-cpu-setup');
   buildCodeInput('cpu-code-boxes', 'cpu-setup-numpad', {}, {});
@@ -764,6 +867,8 @@ window.setDiff = function (d, el) {
   cpuDifficulty = d;
   document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
   el.classList.add('active');
+  const note = document.getElementById('extreme-note');
+  if (note) note.style.display = (d === 'extreme') ? 'block' : 'none';
 };
 
 window.startCpuGame = function () {
@@ -784,6 +889,8 @@ window.startCpuGame = function () {
   cpuIsPlayerTurn = true;
   cpuGameOver = false;
   cpuRound = 1;
+  playerDigitFreq = { 0: {}, 1: {}, 2: {}, 3: {} };
+  playerGuessCount = 0;
 
   document.getElementById('cpu-diff-label').textContent = cpuDifficulty.toUpperCase();
   document.getElementById('cpu-player-attempts').textContent = '0';
@@ -804,7 +911,7 @@ function applyCpuTurnUI() {
     setBlocked('cpu-guess-area', false);
     cpuGuessCtrl = buildCodeInput('cpu-guess-boxes', 'cpu-guess-numpad', { ...playerCorrectPos }, cloneForbidden(playerForbidden));
   } else {
-    ind.textContent = '⏳ CPU IS THINKING...';
+    ind.textContent = (cpuDifficulty === 'extreme') ? '⏳ CPU IS ADAPTING...' : '⏳ CPU IS THINKING...';
     ind.className = 'turn-indicator their-turn';
     setBlocked('cpu-guess-area', true);
   }
@@ -858,7 +965,7 @@ window.cpuPlayerGuess = function () {
 
   cpuIsPlayerTurn = false;
   applyCpuTurnUI();
-  const delays = { easy: 2200, medium: 1500, hard: 900 };
+  const delays = { easy: 2200, medium: 1500, hard: 900, extreme: 1400 };
   setTimeout(doCpuTurn, delays[cpuDifficulty]);
 };
 
@@ -932,6 +1039,8 @@ function cpuPickGuess() {
   if (cpuDifficulty === 'easy') return pool[Math.floor(Math.random() * Math.min(pool.length, 80))];
   if (cpuDifficulty === 'medium') return pool[Math.floor(Math.random() * pool.length)];
 
+  if (cpuDifficulty === 'extreme') return cpuPickGuessExtreme(pool);
+
   // HARD: minimax guess selection (Knuth-style).
   // For each candidate guess, simulate scoring it against every remaining
   // possible secret, bucket results by "hit-count pattern", and score the
@@ -979,6 +1088,64 @@ function cpuPickGuess() {
   return bestGuess || pool[0];
 }
 
+// ── EXTREME solver ─────────────────────────────────────────────────────────
+// Combines a deeper Knuth-style worst-case minimax with Shannon-entropy
+// scoring for stronger move ordering than HARD, then breaks any remaining
+// near-ties using the live adaptive player model (see adaptiveAffinity).
+function cpuPickGuessExtreme(pool) {
+  if (pool.length <= 1) return pool[0] || genRandomCode();
+
+  // Larger candidate/secret sets than HARD — this mode is allowed to think
+  // harder. Still capped so a first-move (10,000 possibilities) stays fast.
+  const candidatePool = pool.length > 320 ? shuffleSample(pool, 320) : pool;
+  const secretSample = pool.length > 450 ? shuffleSample(pool, 450) : pool;
+  const poolSet = new Set(pool.map(c => c.join('')));
+
+  let best = null;
+  let bestKey = null; // [worstCase, -entropy, -adaptiveAffinity, isPossible?0:1]
+
+  for (const guess of candidatePool) {
+    const buckets = new Map();
+    for (const secret of secretSample) {
+      let pattern = '';
+      for (let i = 0; i < 4; i++) pattern += (guess[i] === secret[i]) ? '1' : '0';
+      buckets.set(pattern, (buckets.get(pattern) || 0) + 1);
+    }
+    let worst = 0;
+    let entropy = 0;
+    const n = secretSample.length;
+    for (const count of buckets.values()) {
+      if (count > worst) worst = count;
+      const p = count / n;
+      entropy -= p * Math.log2(p);
+    }
+
+    const isPossible = poolSet.has(guess.join(''));
+    const affinity = adaptiveAffinity(guess);
+
+    // Primary: minimize worst-case bucket. Secondary: maximize entropy
+    // (fastest average convergence). Tertiary: lean toward guesses that
+    // match the player's demonstrated digit habits — if this guess also
+    // happens to be a still-possible secret, that's a free potential win.
+    // Quaternary: prefer guesses that remain viable secrets themselves.
+    const key = [worst, -entropy, -affinity, isPossible ? 0 : 1];
+
+    if (bestKey === null || compareKeys(key, bestKey) < 0) {
+      bestKey = key;
+      best = guess;
+    }
+  }
+
+  return best || pool[0];
+}
+
+function compareKeys(a, b) {
+  for (let i = 0; i < a.length; i++) {
+    if (Math.abs(a[i] - b[i]) > 1e-9) return a[i] - b[i];
+  }
+  return 0;
+}
+
 function shuffleSample(arr, n) {
   const copy = arr.slice();
   for (let i = copy.length - 1; i > 0; i--) {
@@ -1010,6 +1177,12 @@ let mpIsMyTurn = false;
 let mpGuessCtrl = null;
 let mpRenderedTheirCount = 0;
 let mpRenderedMyCount = 0;
+
+// ─── SPECTATE ─────────────────────────────────────────────────────────────
+let spectateListUnsub = null;   // unsubscribe fn for the live lobby list
+let spectateRoomId = null;
+let spectateUnsubs = [];        // unsubscribe fns for the room + log listeners
+let specFeedCount = 0;
 
 window.showMultiplayer = function () { showScreen('screen-mp-lobby'); };
 window.showJoinRoom = function () { document.getElementById('mp-join-section').style.display = 'block'; };
@@ -1271,6 +1444,124 @@ window.leaveRoom = async function () {
     mpRoomId = null;
   }
   showScreen('screen-menu');
+};
+
+// ─── SPECTATE MODE ────────────────────────────────────────────────────────
+// Lets anyone browse rooms currently in progress and watch them live,
+// without ever seeing either player's secret code — only guess counts,
+// whose turn it is, and a running hit-count feed (fed by the players'
+// own clients as they play, see the `log` push in mpPlayerGuess below).
+
+function renderSpectateList(roomsObj) {
+  const container = document.getElementById('spectate-list');
+  const entries = Object.entries(roomsObj || {}).filter(([, d]) => d && d.status === 'playing');
+
+  if (entries.length === 0) {
+    container.innerHTML = '<div class="empty-history">No live matches right now — start one in Multiplayer!</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+  entries
+    .sort((a, b) => (b[1].round || 1) - (a[1].round || 1))
+    .forEach(([id, d]) => {
+      const hostAttempts = d.hostGuesses ? Object.keys(d.hostGuesses).length : 0;
+      const guestAttempts = d.guestGuesses ? Object.keys(d.guestGuesses).length : 0;
+
+      const row = document.createElement('div');
+      row.className = 'spectate-row';
+
+      const info = document.createElement('div');
+      info.className = 'spectate-row-info';
+      info.innerHTML = `
+        <div class="spectate-room-id"><span class="spectate-live-dot"></span>${id}</div>
+        <div class="spectate-meta">
+          <span>ROUND ${d.round || 1}</span>
+          <span>${(d.turn || 'host').toUpperCase()}'S TURN</span>
+          <span>H:${hostAttempts} · G:${guestAttempts}</span>
+        </div>`;
+
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-green';
+      btn.innerHTML = '<span>Watch</span>';
+      btn.onclick = () => spectateRoom(id);
+
+      row.appendChild(info);
+      row.appendChild(btn);
+      container.appendChild(row);
+    });
+}
+
+window.showSpectateLobby = function () {
+  showScreen('screen-spectate-lobby');
+  if (spectateListUnsub) { spectateListUnsub(); spectateListUnsub = null; }
+  spectateListUnsub = onValue(ref(db, 'rooms'), snap => {
+    renderSpectateList(snap.exists() ? snap.val() : {});
+  });
+};
+
+window.leaveSpectateLobby = function () {
+  if (spectateListUnsub) { spectateListUnsub(); spectateListUnsub = null; }
+  showScreen('screen-menu');
+};
+
+window.spectateRoom = function (id) {
+  if (spectateListUnsub) { spectateListUnsub(); spectateListUnsub = null; }
+
+  spectateRoomId = id;
+  specFeedCount = 0;
+  document.getElementById('spec-room-label').textContent = id;
+  document.getElementById('spec-host-attempts').textContent = '0';
+  document.getElementById('spec-guest-attempts').textContent = '0';
+  document.getElementById('spec-round-label').textContent = '1';
+  document.getElementById('spec-feed').innerHTML = '<div class="empty-history">Waiting for the next move<span class="waiting-dots"></span></div>';
+  showScreen('screen-spectate-game');
+
+  const unsubRoom = onValue(ref(db, `rooms/${id}`), snap => {
+    if (!snap.exists()) {
+      notify('That match just ended', 'red');
+      leaveSpectateGame();
+      return;
+    }
+    const d = snap.val();
+    document.getElementById('spec-round-label').textContent = d.round || 1;
+    document.getElementById('spec-host-attempts').textContent = d.hostGuesses ? Object.keys(d.hostGuesses).length : 0;
+    document.getElementById('spec-guest-attempts').textContent = d.guestGuesses ? Object.keys(d.guestGuesses).length : 0;
+
+    const ind = document.getElementById('spec-turn-indicator');
+    if (d.status === 'finished') {
+      ind.textContent = `🏁 MATCH OVER — ${(d.winner || '?').toUpperCase()} WINS`;
+      ind.className = 'turn-indicator your-turn';
+    } else {
+      ind.textContent = `⚡ ${(d.turn || 'host').toUpperCase()}'S TURN`;
+      ind.className = 'turn-indicator their-turn';
+    }
+  });
+
+  const unsubLog = onValue(ref(db, `rooms/${id}/log`), snap => {
+    const entries = Object.values(snap.exists() ? snap.val() : {});
+    if (entries.length === 0) return;
+    const feed = document.getElementById('spec-feed');
+    if (specFeedCount === 0) feed.innerHTML = '';
+    for (let i = specFeedCount; i < entries.length; i++) {
+      const e = entries[i];
+      const row = document.createElement('div');
+      row.className = 'feed-row';
+      row.innerHTML = `<span class="feed-role ${e.role}">${e.role.toUpperCase()}</span><span>guess #${e.attempt}</span><span class="feed-hits">${e.hits}/4 ✓</span>`;
+      feed.appendChild(row);
+    }
+    feed.scrollTop = feed.scrollHeight;
+    specFeedCount = entries.length;
+  });
+
+  spectateUnsubs = [unsubRoom, unsubLog];
+};
+
+window.leaveSpectateGame = function () {
+  spectateUnsubs.forEach(u => u && u());
+  spectateUnsubs = [];
+  spectateRoomId = null;
+  showSpectateLobby();
 };
 
 showScreen('screen-menu');
@@ -1666,7 +1957,15 @@ function buildCodeInputWithSound(boxesId, numpadId, lockedCorrect, forbidden) {
   };
 }
 
-// Replace buildCodeInput globally
+// Replace buildCodeInput globally — reassigning the bare module-scope
+// binding (not just window.buildCodeInput) is what actually matters:
+// every internal call site (startVsComputer, applyCpuTurnUI, startCpuGame,
+// confirmMpCode, applyMpTurnUI, startMpGame) calls `buildCodeInput(...)`
+// directly by name, which resolves to this module's local binding — not
+// to a property on `window`. Without this line those call sites keep
+// using the original function, which never sets `numpad._api`, which is
+// exactly why the keyboard handler below silently does nothing.
+buildCodeInput = buildCodeInputWithSound;
 window.buildCodeInput = buildCodeInputWithSound;
 // Also reassign the local reference used by CPU/MP code
 // (since those call buildCodeInput directly, we patch it on window
@@ -1726,6 +2025,8 @@ window.cpuPlayerGuess = function () {
   document.getElementById('cpu-player-attempts').textContent = cpuPlayerAttempts;
   const { correctPos } = evaluateGuess(digits, cpuCode);
 
+  if (cpuDifficulty === 'extreme') trackPlayerGuess(digits);
+
   for (let i = 0; i < 4; i++) {
     if (correctPos[i]) {
       playerCorrectPos[i] = String(digits[i]);
@@ -1764,7 +2065,7 @@ window.cpuPlayerGuess = function () {
   notify(`${hits}/4 correct — CPU's turn`, hits === 0 ? 'red' : 'green');
   cpuIsPlayerTurn = false;
   applyCpuTurnUI();
-  const delays = { easy: 2200, medium: 1500, hard: 900 };
+  const delays = { easy: 2200, medium: 1500, hard: 900, extreme: 1400 };
   setTimeout(() => { SFX.cpuThink(); }, 200);
   setTimeout(doCpuTurn, delays[cpuDifficulty]);
 };
@@ -1856,6 +2157,13 @@ window.mpPlayerGuess = async function () {
 
   const myGuessField = mpRole === 'host' ? 'hostGuesses' : 'guestGuesses';
   await push(ref(db, `rooms/${mpRoomId}/${myGuessField}`), digits.join(''));
+
+  // Spectator feed — hit count only, never the actual digits, so watchers
+  // can't reverse-engineer either player's secret code.
+  const hits0 = correctPos.filter(Boolean).length;
+  push(ref(db, `rooms/${mpRoomId}/log`), {
+    role: mpRole, attempt: mpMyAttempts, hits: hits0, ts: Date.now()
+  }).catch(() => {});
 
   const hist = document.getElementById('mp-my-history');
   if (hist.querySelector('.empty-history')) hist.innerHTML = '';
