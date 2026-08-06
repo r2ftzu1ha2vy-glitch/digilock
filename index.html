@@ -315,6 +315,16 @@
   .feed-role.host { color:var(--accent); border:1px solid var(--accent); }
   .feed-role.guest { color:var(--accent2); border:1px solid var(--accent2); }
   .feed-hits { margin-left:auto; color:var(--text); }
+
+  /* Spectator progress bars */
+  .spec-progress-row { margin-bottom:14px; }
+  .spec-progress-row:last-child { margin-bottom:0; }
+  .spec-progress-label { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+  .spec-progress-hits { font-family:'Share Tech Mono',monospace; font-size:12px; color:var(--text); }
+  .spec-progress-track { width:100%; height:10px; background:var(--panel2); border:1px solid var(--border); border-radius:5px; overflow:hidden; }
+  .spec-progress-fill { height:100%; border-radius:5px; transition:width 0.35s ease; }
+  .spec-progress-fill.host { background:linear-gradient(90deg, var(--accent), #6fe8ff); box-shadow:0 0 10px rgba(0,212,255,0.5); }
+  .spec-progress-fill.guest { background:linear-gradient(90deg, var(--accent2), #ff8fae); box-shadow:0 0 10px rgba(255,60,110,0.5); }
 </style>
 </head>
 <body>
@@ -587,6 +597,24 @@
     <div id="spec-turn-indicator" class="turn-indicator their-turn">Connecting<span class="waiting-dots"></span></div>
 
     <div class="panel">
+      <div class="section-title">Progress</div>
+      <div class="spec-progress-row">
+        <div class="spec-progress-label">
+          <span class="feed-role host">HOST</span>
+          <span class="spec-progress-hits" id="spec-host-hits">0/4</span>
+        </div>
+        <div class="spec-progress-track"><div class="spec-progress-fill host" id="spec-host-fill" style="width:0%;"></div></div>
+      </div>
+      <div class="spec-progress-row">
+        <div class="spec-progress-label">
+          <span class="feed-role guest">GUEST</span>
+          <span class="spec-progress-hits" id="spec-guest-hits">0/4</span>
+        </div>
+        <div class="spec-progress-track"><div class="spec-progress-fill guest" id="spec-guest-fill" style="width:0%;"></div></div>
+      </div>
+    </div>
+
+    <div class="panel">
       <div class="section-title">Live Feed</div>
       <div style="font-size:11px;color:var(--dim);margin-bottom:10px;font-family:'Share Tech Mono',monospace;">
         Spectators see guess counts and hit results only — secret codes stay hidden, just like for the players.
@@ -607,6 +635,7 @@
     <div class="modal-title" id="result-title">—</div>
     <div class="modal-sub" id="result-sub">—</div>
     <div class="modal-btns">
+      <button class="btn btn-green" id="result-rematch-btn" style="display:none;" onclick=""><span>Rematch</span></button>
       <button class="btn" onclick="location.reload()"><span>Play Again</span></button>
     </div>
   </div>
@@ -646,7 +675,16 @@ function notify(msg, type = '', dur = 2800) {
   setTimeout(() => el.classList.remove('show'), dur);
 }
 
-function showResult(win, title, sub) {
+// Short haptic buzz on mobile for blocked/forbidden taps. No-op on devices
+// or browsers without the Vibration API (desktop, iOS Safari).
+function hapticBlocked() {
+  if (navigator.vibrate) navigator.vibrate(35);
+}
+function hapticHit() {
+  if (navigator.vibrate) navigator.vibrate([25, 40, 25]);
+}
+
+function showResult(win, title, sub, mode) {
   document.getElementById('result-title').textContent = title;
   document.getElementById('result-sub').textContent = sub;
   const svg = document.getElementById('result-svg');
@@ -656,6 +694,32 @@ function showResult(win, title, sub) {
     : `<circle cx="30" cy="30" r="28" fill="none" stroke="#ff3c6e" stroke-width="2"/>
        <line x1="18" y1="18" x2="42" y2="42" stroke="#ff3c6e" stroke-width="3" stroke-linecap="round"/>
        <line x1="42" y1="18" x2="18" y2="42" stroke="#ff3c6e" stroke-width="3" stroke-linecap="round"/>`;
+
+  // Rematch button: CPU mode restarts straight into a fresh setup screen
+  // (same difficulty, ready for a new secret); MP mode returns to the
+  // lobby since rooms are one-shot. Absent/unknown mode falls back to
+  // a full reload, same as before.
+  const rematchBtn = document.getElementById('result-rematch-btn');
+  if (rematchBtn) {
+    if (mode === 'cpu') {
+      rematchBtn.style.display = '';
+      rematchBtn.onclick = () => {
+        document.getElementById('result-overlay').classList.remove('active');
+        window.startVsComputer();
+        const el = document.querySelector(`.diff-btn.diff-${cpuDifficulty}`);
+        if (el) window.setDiff(cpuDifficulty, el);
+      };
+    } else if (mode === 'mp') {
+      rematchBtn.style.display = '';
+      rematchBtn.onclick = () => {
+        document.getElementById('result-overlay').classList.remove('active');
+        window.showMultiplayer();
+      };
+    } else {
+      rematchBtn.style.display = 'none';
+    }
+  }
+
   document.getElementById('result-overlay').classList.add('active');
 }
 
@@ -768,6 +832,7 @@ function buildCodeInput(boxesId, numpadId, lockedCorrect, forbidden) {
           sel = next;
         }
         if (getForbiddenAt(sel).has(String(n))) {
+          hapticBlocked();
           notify(`${n} is blocked at position ${sel + 1} — pick another`, 'red');
           return;
         }
@@ -969,7 +1034,7 @@ window.cpuPlayerGuess = function () {
     cpuGameOver = true;
     setBlocked('cpu-guess-area', true);
     setTimeout(() => showResult(true, 'CODE BYPASSED',
-      `You cracked the CPU's code [${cpuCode.join('')}] in ${cpuPlayerAttempts} guesses!`), 400);
+      `You cracked the CPU's code [${cpuCode.join('')}] in ${cpuPlayerAttempts} guesses!`, 'cpu'), 400);
     return;
   }
 
@@ -1013,7 +1078,7 @@ function doCpuTurn() {
   if (correctPos.every(Boolean)) {
     cpuGameOver = true;
     setTimeout(() => showResult(false, 'SYSTEM BREACH',
-      `The CPU cracked your code [${playerCode.join('')}] in ${cpuCpuAttempts} guesses.`), 400);
+      `The CPU cracked your code [${playerCode.join('')}] in ${cpuCpuAttempts} guesses.`, 'cpu'), 400);
     return;
   }
 
@@ -1467,7 +1532,7 @@ function listenMpRoom() {
     if (last && last === mpMyCode.join('') && !mpGameOver) {
       mpGameOver = true;
       setTimeout(() => showResult(false, 'CODE COMPROMISED',
-        `Your opponent cracked your code [${mpMyCode.join('')}]!`), 600);
+        `Your opponent cracked your code [${mpMyCode.join('')}]!`, 'mp'), 600);
     }
   });
 }
@@ -1532,7 +1597,7 @@ window.mpPlayerGuess = async function () {
     mpGameOver = true;
     await update(ref(db, `rooms/${mpRoomId}`), { status: 'finished', winner: mpRole });
     setTimeout(() => showResult(true, 'CODE BYPASSED',
-      `You cracked the opponent's code [${mpTheirCode.join('')}] in ${mpMyAttempts} guesses!`), 400);
+      `You cracked the opponent's code [${mpTheirCode.join('')}] in ${mpMyAttempts} guesses!`, 'mp'), 400);
     return;
   }
 
@@ -1623,6 +1688,8 @@ window.spectateRoom = function (id) {
   document.getElementById('spec-guest-attempts').textContent = '0';
   document.getElementById('spec-round-label').textContent = '1';
   document.getElementById('spec-feed').innerHTML = '<div class="empty-history">Waiting for the next move<span class="waiting-dots"></span></div>';
+  updateSpecProgress('host', 0);
+  updateSpecProgress('guest', 0);
   showScreen('screen-spectate-game');
 
   const unsubRoom = onValue(ref(db, `rooms/${id}`), snap => {
@@ -1640,11 +1707,17 @@ window.spectateRoom = function (id) {
     if (d.status === 'finished') {
       ind.textContent = `🏁 MATCH OVER — ${(d.winner || '?').toUpperCase()} WINS`;
       ind.className = 'turn-indicator your-turn';
+      // Winner necessarily landed 4/4 — reflect that on the bar even if
+      // the final log entry hasn't streamed in yet.
+      updateSpecProgress(d.winner === 'guest' ? 'guest' : 'host', 4);
     } else {
       ind.textContent = `⚡ ${(d.turn || 'host').toUpperCase()}'S TURN`;
       ind.className = 'turn-indicator their-turn';
     }
   });
+
+  // Best hit count seen so far per side, for the progress bars.
+  const specBestHits = { host: 0, guest: 0 };
 
   const unsubLog = onValue(ref(db, `rooms/${id}/log`), snap => {
     const entries = Object.values(snap.exists() ? snap.val() : {});
@@ -1657,6 +1730,13 @@ window.spectateRoom = function (id) {
       row.className = 'feed-row';
       row.innerHTML = `<span class="feed-role ${e.role}">${e.role.toUpperCase()}</span><span>guess #${e.attempt}</span><span class="feed-hits">${e.hits}/4 ✓</span>`;
       feed.appendChild(row);
+
+      if (e.role === 'host' || e.role === 'guest') {
+        if (e.hits > specBestHits[e.role]) {
+          specBestHits[e.role] = e.hits;
+          updateSpecProgress(e.role, e.hits);
+        }
+      }
     }
     feed.scrollTop = feed.scrollHeight;
     specFeedCount = entries.length;
@@ -1664,6 +1744,14 @@ window.spectateRoom = function (id) {
 
   spectateUnsubs = [unsubRoom, unsubLog];
 };
+
+function updateSpecProgress(role, hits) {
+  const fill = document.getElementById(`spec-${role}-fill`);
+  const label = document.getElementById(`spec-${role}-hits`);
+  if (fill) fill.style.width = `${Math.min(hits, 4) / 4 * 100}%`;
+  if (label) label.textContent = `${Math.min(hits, 4)}/4`;
+}
+
 
 window.leaveSpectateGame = function () {
   spectateUnsubs.forEach(u => u && u());
@@ -1767,6 +1855,7 @@ const SFX = (() => {
 
   // ── forbidden / blocked: angry buzz ──
   function forbidden() {
+    hapticBlocked();
     const c = getCtx();
     const now = c.currentTime;
     const mg = masterGain(0.15);
@@ -1779,6 +1868,7 @@ const SFX = (() => {
 
   // ── correct hit (green): ascending ping ──
   function hit() {
+    hapticHit();
     const c = getCtx();
     const now = c.currentTime;
     const mg = masterGain(0.16);
@@ -1967,6 +2057,7 @@ function buildCodeInputWithSound(boxesId, numpadId, lockedCorrect, forbidden) {
     }
     if (getForbiddenAt(sel).has(String(n))) {
       SFX.forbidden();
+      hapticBlocked();
       notify(`${n} is blocked at position ${sel + 1} — pick another`, 'red');
       return;
     }
@@ -2153,7 +2244,7 @@ window.cpuPlayerGuess = function () {
   if (correctPos.every(Boolean)) {
     cpuGameOver = true;
     setBlocked('cpu-guess-area', true);
-    setTimeout(() => { SFX.win(); showResult(true, 'CODE BYPASSED', `You cracked the CPU's code [${cpuCode.join('')}] in ${cpuPlayerAttempts} guesses!`); }, 400);
+    setTimeout(() => { SFX.win(); showResult(true, 'CODE BYPASSED', `You cracked the CPU's code [${cpuCode.join('')}] in ${cpuPlayerAttempts} guesses!`, 'cpu'); }, 400);
     return;
   }
 
@@ -2214,7 +2305,7 @@ function doCpuTurnWithSound() {
 
   if (correctPos.every(Boolean)) {
     cpuGameOver = true;
-    setTimeout(() => { SFX.lose(); showResult(false, 'SYSTEM BREACH', `The CPU cracked your code [${playerCode.join('')}] in ${cpuCpuAttempts} guesses.`); }, 400);
+    setTimeout(() => { SFX.lose(); showResult(false, 'SYSTEM BREACH', `The CPU cracked your code [${playerCode.join('')}] in ${cpuCpuAttempts} guesses.`, 'cpu'); }, 400);
     return;
   }
 
@@ -2286,7 +2377,7 @@ window.mpPlayerGuess = async function () {
   if (correctPos.every(Boolean)) {
     mpGameOver = true;
     await update(ref(db, `rooms/${mpRoomId}`), { status: 'finished', winner: mpRole });
-    setTimeout(() => { SFX.win(); showResult(true, 'CODE BYPASSED', `You cracked the opponent's code [${mpTheirCode.join('')}] in ${mpMyAttempts} guesses!`); }, 400);
+    setTimeout(() => { SFX.win(); showResult(true, 'CODE BYPASSED', `You cracked the opponent's code [${mpTheirCode.join('')}] in ${mpMyAttempts} guesses!`, 'mp'); }, 400);
     return;
   }
 
