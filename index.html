@@ -915,6 +915,17 @@ let cpuRound = 1;
 let playerDigitFreq = { 0: {}, 1: {}, 2: {}, 3: {} };
 let playerGuessCount = 0;
 
+// Below this many observed player guesses, the model has no real signal —
+// a single guess would otherwise score a perfect 1.0 affinity with itself
+// (every digit "seen" 1/1 times) and hijack every tie-break, making the
+// CPU look like it's just copying whatever the player last typed. Require
+// a real sample before the model is trusted at all.
+const ADAPTIVE_MIN_SAMPLES = 5;
+// Laplace smoothing constant — even once there's enough data, a digit's
+// observed frequency is damped so it can only ever nudge a genuine tie,
+// never fully dictate the pick.
+const ADAPTIVE_SMOOTHING = 8;
+
 function trackPlayerGuess(digits) {
   playerGuessCount++;
   for (let i = 0; i < 4; i++) {
@@ -925,11 +936,15 @@ function trackPlayerGuess(digits) {
 
 function adaptiveAffinity(code) {
   // 0..1 — how strongly this candidate code resonates with the digits
-  // the player has been reaching for. Only meaningful once we have data.
-  if (playerGuessCount === 0) return 0;
+  // the player has been reaching for. Requires a minimum sample size and
+  // is Laplace-smoothed so it can only ever break a genuine tie between
+  // moves that are already equally good by worst-case/entropy — it must
+  // never be strong enough on its own to make the CPU pick (or repeat)
+  // a specific guess just because the player recently typed it.
+  if (playerGuessCount < ADAPTIVE_MIN_SAMPLES) return 0;
   let sum = 0;
   for (let i = 0; i < 4; i++) {
-    sum += (playerDigitFreq[i][code[i]] || 0) / playerGuessCount;
+    sum += (playerDigitFreq[i][code[i]] || 0) / (playerGuessCount + ADAPTIVE_SMOOTHING);
   }
   return sum / 4;
 }
