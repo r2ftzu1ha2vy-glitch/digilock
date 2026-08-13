@@ -1097,6 +1097,13 @@ function doCpuTurn() {
     return;
   }
 
+  if (cpuDifficulty === 'nightmare' && cpuCpuAttempts >= 5) {
+    cpuGameOver = true;
+    setTimeout(() => showResult(true, 'CPU OUT OF ATTEMPTS',
+      `The CPU failed to crack your code [${playerCode.join('')}] within its 5-guess limit. You win!`, 'cpu'), 400);
+    return;
+  }
+
   cpuIsPlayerTurn = true;
   applyCpuTurnUI();
 }
@@ -1110,13 +1117,93 @@ function genRandomCode() {
 // reveal every digit+position at once). Force those secrets to use 4
 // distinct digits so a monorepeat guess can score at most one hit.
 function genCpuSecretCode(difficulty) {
-  if (difficulty !== 'extreme' && difficulty !== 'nightmare') return genRandomCode();
-  const digits = Array.from({ length: 10 }, (_, i) => String(i));
-  for (let i = digits.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [digits[i], digits[j]] = [digits[j], digits[i]];
+  if (difficulty !== 'hard' && difficulty !== 'extreme' && difficulty !== 'nightmare') return genRandomCode();
+
+  const distinctDigitCode = () => {
+    const digits = Array.from({ length: 10 }, (_, i) => String(i));
+    for (let i = digits.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [digits[i], digits[j]] = [digits[j], digits[i]];
+    }
+    return digits.slice(0, 4);
+  };
+
+  if (difficulty === 'hard') return distinctDigitCode();
+
+  // EXTREME/NIGHTMARE: pick the secret adversarially. Generate a batch of
+  // distinct-digit candidates, then keep the one that survives the longest
+  // against a simulated optimal (Knuth-style minimax) guesser — i.e. the
+  // secret that's structurally hardest to pin down quickly, not just a
+  // random distinct-digit code. Nightmare searches harder (more candidates,
+  // deeper simulation) than Extreme.
+  const candidateCount = difficulty === 'nightmare' ? 40 : 18;
+  const candidates = Array.from({ length: candidateCount }, distinctDigitCode);
+  let best = candidates[0];
+  let bestScore = -Infinity;
+  for (const candidate of candidates) {
+    const score = simulateSecretResilience(candidate, difficulty);
+    if (score > bestScore) { bestScore = score; best = candidate; }
   }
-  return digits.slice(0, 4);
+  return best;
+}
+
+// Estimate how many guesses an optimal solver would need against this
+// candidate secret, using the same minimax/entropy solver logic the CPU
+// itself uses on hard modes — just pointed at the candidate instead of at
+// the player. Higher return value = harder to crack = better secret pick.
+function simulateSecretResilience(secret, difficulty) {
+  const secretStr = secret.join('');
+  let pool = genAllCodes();
+  let corr = {}, forb = {};
+  const maxRounds = difficulty === 'nightmare' ? 8 : 6;
+  let rounds = 0;
+
+  for (let r = 0; r < maxRounds; r++) {
+    const valid = pool.filter(code => {
+      for (let i = 0; i < 4; i++) {
+        if (corr[i] !== undefined && code[i] !== corr[i]) return false;
+        if (forb[i] && forb[i].has(code[i])) return false;
+      }
+      return true;
+    });
+    const searchPool = valid.length > 0 ? valid : pool;
+    if (searchPool.length <= 1) { rounds = r; break; }
+
+    // Use a lighter/faster minimax pass here (smaller samples) since this
+    // runs many times (once per candidate) before the game even starts.
+    const candGuesses = searchPool.length > 60 ? shuffleSample(searchPool, 60) : searchPool;
+    const secretSample = searchPool.length > 90 ? shuffleSample(searchPool, 90) : searchPool;
+
+    let guess = candGuesses[0], bestWorst = Infinity;
+    for (const g of candGuesses) {
+      const buckets = new Map();
+      for (const s of secretSample) {
+        let p = '';
+        for (let i = 0; i < 4; i++) p += (g[i] === s[i]) ? '1' : '0';
+        buckets.set(p, (buckets.get(p) || 0) + 1);
+      }
+      let worst = 0;
+      for (const c of buckets.values()) if (c > worst) worst = c;
+      if (worst < bestWorst) { bestWorst = worst; guess = g; }
+    }
+
+    if (guess.join('') === secretStr) { rounds = r + 1; break; }
+
+    const correctPos = guess.map((d, i) => d === secret[i]);
+    for (let i = 0; i < 4; i++) {
+      if (correctPos[i]) { corr[i] = guess[i]; if (forb[i]) forb[i].delete(guess[i]); }
+      else { if (!forb[i]) forb[i] = new Set(); forb[i].add(guess[i]); }
+    }
+    pool = pool.filter(code => {
+      for (let i = 0; i < 4; i++) {
+        if (correctPos[i] && code[i] !== guess[i]) return false;
+        if (!correctPos[i] && code[i] === guess[i]) return false;
+      }
+      return true;
+    });
+    rounds = r + 1;
+  }
+  return rounds;
 }
 function genAllCodes() {
   const c = [];
@@ -1147,7 +1234,7 @@ function cpuPickGuess() {
   if (cpuDifficulty === 'medium') return pool[Math.floor(Math.random() * pool.length)];
 
   if (cpuDifficulty === 'extreme') return cpuPickGuessExtreme(pool);
-  if (cpuDifficulty === 'nightmare') return cpuPickGuessNightmare(pool);
+  if (cpuDifficulty === 'nightmare') return cpuPickGuessNightmare(pool, cpuCpuAttempts + 1);
 
   // HARD: minimax guess selection (Knuth-style).
   // For each candidate guess, simulate scoring it against every remaining
@@ -1206,7 +1293,8 @@ function cpuPickGuessExtreme(pool) {
   // Larger candidate/secret sets than HARD — this mode is allowed to think
   // harder. Still capped so a first-move (10,000 possibilities) stays fast.
   const candidatePool = augmentWithProbeGuesses(
-    pool.length > 320 ? shuffleSample(pool, 320) : pool
+    pool.length > 320 ? shuffleSample(pool, 320) : pool,
+    cpuCorrectPos, cpuForbidden
   );
   const secretSample = pool.length > 450 ? shuffleSample(pool, 450) : pool;
   const poolSet = new Set(pool.map(c => c.join('')));
@@ -1257,50 +1345,126 @@ function cpuPickGuessExtreme(pool) {
 // very first read instead of waiting for data to accumulate. This is as
 // close to a "perfect" Mastermind solver as this engine gets — intended
 // to be effectively unbeatable, not just "hard."
-function cpuPickGuessNightmare(pool) {
+//
+// NIGHTMARE also follows a scripted difficulty ramp on top of that solver:
+// each guess is required to land on a specific correct-position count
+// against the player's real code (attempt 1: 0-1 hits, 2: 1-2, 3: 2-3,
+// 4: 3-4 — so it *can* win outright on guess 4 — and attempt 5 is forced
+// to be the exact code, guaranteeing a win by the 5-guess limit if it
+// hasn't already won). The solver's normal scoring still picks which
+// on-band guess to make, so it still looks like genuine deduction — it's
+// just constrained to guesses that keep the ramp on track.
+function cpuPickGuessNightmare(pool, attemptNumber) {
   if (pool.length <= 1) return pool[0] || genRandomCode();
 
-  // No downsampling of the secret space — score against every possibility
-  // that's still alive. Only the *candidate guess* set gets a (generous)
-  // cap purely so a first move over 10,000 possibilities doesn't hang the
-  // browser tab; even that cap is far above EXTREME's.
-  const candidatePool = augmentWithProbeGuesses(
-    pool.length > 1200 ? shuffleSample(pool, 1200) : pool
-  );
-  const secretSample = pool; // full space, always
+  // Final guess of the 5-attempt budget: guaranteed crack.
+  if (attemptNumber >= 5) return playerCode.slice();
+
+  const HIT_BANDS = { 1: [0, 1], 2: [1, 2], 3: [2, 3], 4: [3, 4] };
+  const band = HIT_BANDS[attemptNumber] || [3, 4];
+  const hitsVsSecret = code => code.reduce((n, d, i) => n + (d === playerCode[i] ? 1 : 0), 0);
+
+  // Score against the full remaining secret space whenever it's small
+  // enough to afford (which is most of the game — the pool shrinks fast
+  // after guess 1). Only the very first move or two, where pool can still
+  // be near the full 10,000-code space, gets sampled down so the browser
+  // tab doesn't hang; every later, more-decisive move gets exact full-pool
+  // scoring plus a 2-ply lookahead.
+  const FULL_SEARCH_CAP = 700;
+  const candidateSource = pool.length > FULL_SEARCH_CAP ? shuffleSample(pool, FULL_SEARCH_CAP) : pool;
+  let candidatePool = augmentWithProbeGuesses(candidateSource, cpuCorrectPos, cpuForbidden);
+
+  // Restrict to guesses that keep this turn's scripted hit-count band —
+  // this is what actually drives the ramp; everything below just picks
+  // the "smartest-looking" guess among the ones that qualify.
+  let scriptedPool = candidatePool.filter(g => band.includes(hitsVsSecret(g)));
+  if (scriptedPool.length === 0) scriptedPool = pool.filter(g => band.includes(hitsVsSecret(g)));
+  if (scriptedPool.length === 0) {
+    // Extremely rare fallback (heavily-constrained late-game pool with no
+    // exact on-band candidate left) — degrade gracefully to the closest
+    // achievable hit count rather than breaking the ramp entirely.
+    let bestDist = Infinity;
+    for (const g of candidatePool) {
+      const dist = Math.min(...band.map(t => Math.abs(t - hitsVsSecret(g))));
+      if (dist < bestDist) { bestDist = dist; scriptedPool = [g]; }
+      else if (dist === bestDist) scriptedPool.push(g);
+    }
+  }
+  if (scriptedPool.length === 1) return scriptedPool[0];
+  candidatePool = scriptedPool;
+
+  const secretSample = pool.length > 900 ? shuffleSample(pool, 900) : pool;
   const poolSet = new Set(pool.map(c => c.join('')));
 
-  let best = null;
-  let bestKey = null; // [worstCase, -entropy, -adaptiveAffinity, isPossible?0:1]
-
+  // First pass: score every candidate by worst-case bucket + entropy, as
+  // before. Keep the top handful by that score to hand off to a deeper
+  // 2-ply lookahead (evaluating literally every candidate 2 moves deep
+  // against the full pool would be too slow at large pool sizes).
+  const scored = [];
   for (const guess of candidatePool) {
     const buckets = new Map();
     for (const secret of secretSample) {
       let pattern = '';
       for (let i = 0; i < 4; i++) pattern += (guess[i] === secret[i]) ? '1' : '0';
-      buckets.set(pattern, (buckets.get(pattern) || 0) + 1);
+      const arr = buckets.get(pattern);
+      if (arr) arr.push(secret); else buckets.set(pattern, [secret]);
     }
     let worst = 0;
     let entropy = 0;
     const n = secretSample.length;
-    for (const count of buckets.values()) {
-      if (count > worst) worst = count;
-      const p = count / n;
+    for (const arr of buckets.values()) {
+      if (arr.length > worst) worst = arr.length;
+      const p = arr.length / n;
       entropy -= p * Math.log2(p);
     }
-
     const isPossible = poolSet.has(guess.join(''));
     const affinity = adaptiveAffinity(guess);
-
     const key = [worst, -entropy, -affinity, isPossible ? 0 : 1];
+    scored.push({ guess, key, buckets, n });
+  }
+  scored.sort((a, b) => compareKeys(a.key, b.key));
 
-    if (bestKey === null || compareKeys(key, bestKey) < 0) {
-      bestKey = key;
-      best = guess;
+  // Only the front-runners are worth a 2-ply lookahead — anything already
+  // far behind on worst-case/entropy won't catch up. Fewer shortlist slots
+  // when the pool is still huge, to keep the lookahead pass cheap.
+  const shortlistSize = pool.length > 300 ? 6 : 12;
+  const shortlist = scored.slice(0, Math.min(shortlistSize, scored.length));
+  if (shortlist.length === 1) return shortlist[0].guess;
+
+  let best = shortlist[0].guess;
+  let bestLookaheadWorst = Infinity;
+  for (const cand of shortlist) {
+    // For each way this guess could split the secret space, find how good
+    // the *best* follow-up guess would be against that resulting subgroup
+    // (by its own worst-case bucket count), then take the worst of those
+    // follow-up scores. A guess that scores well now but leaves a nasty
+    // subgroup for next turn loses to one that stays strong two moves out.
+    let worstFollowUp = 0;
+    for (const [, remaining] of cand.buckets) {
+      if (remaining.length <= 1) continue; // solved or trivial next guess
+      const followUpCands = remaining.length > 40 ? shuffleSample(remaining, 40) : remaining;
+      const followUpSecrets = remaining.length > 60 ? shuffleSample(remaining, 60) : remaining;
+      let bestFollowUpWorst = Infinity;
+      for (const fg of followUpCands) {
+        const fbuckets = new Map();
+        for (const fs of followUpSecrets) {
+          let p = '';
+          for (let i = 0; i < 4; i++) p += (fg[i] === fs[i]) ? '1' : '0';
+          fbuckets.set(p, (fbuckets.get(p) || 0) + 1);
+        }
+        let fw = 0;
+        for (const c of fbuckets.values()) if (c > fw) fw = c;
+        if (fw < bestFollowUpWorst) bestFollowUpWorst = fw;
+      }
+      if (bestFollowUpWorst > worstFollowUp) worstFollowUp = bestFollowUpWorst;
+    }
+    if (worstFollowUp < bestLookaheadWorst) {
+      bestLookaheadWorst = worstFollowUp;
+      best = cand.guess;
     }
   }
 
-  return best || pool[0];
+  return best || scriptedPool[0];
 }
 
 // The CPU's candidate guesses were only ever drawn from the still-possible
@@ -1311,7 +1475,13 @@ function cpuPickGuessNightmare(pool) {
 // representative set of repeated-digit probes into the candidate pool so
 // the minimax/entropy scoring can pick them whenever they're actually the
 // strongest move, instead of the CPU being structurally blind to them.
-function augmentWithProbeGuesses(candidatePool) {
+//
+// IMPORTANT: these probes are generated blind to what the CPU already
+// knows, so they must be filtered against known correctPos/forbidden
+// before being added — otherwise the minimax score can prefer a probe
+// that discards an already-confirmed digit (e.g. throwing out a locked
+// position 0 = '3' to try '7777'), which wastes a guess for no reason.
+function augmentWithProbeGuesses(candidatePool, correctPos, forbidden) {
   const probes = [];
   for (let d = 0; d <= 9; d++) probes.push([d, d, d, d].map(String)); // monorepeats
   // A handful of double-pair patterns for broader coverage without
@@ -1322,8 +1492,15 @@ function augmentWithProbeGuesses(candidatePool) {
       probes.push([a, a, b, b].map(String));
     }
   }
+  const respectsKnown = (code) => {
+    for (let i = 0; i < 4; i++) {
+      if (correctPos && correctPos[i] !== undefined && code[i] !== correctPos[i]) return false;
+      if (forbidden && forbidden[i] && forbidden[i].has(code[i])) return false;
+    }
+    return true;
+  };
   const seen = new Set(candidatePool.map(c => c.join('')));
-  const extra = probes.filter(p => !seen.has(p.join('')));
+  const extra = probes.filter(p => !seen.has(p.join('')) && respectsKnown(p));
   return candidatePool.concat(extra);
 }
 
