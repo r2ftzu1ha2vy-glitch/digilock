@@ -1347,13 +1347,15 @@ function cpuPickGuessExtreme(pool) {
 // to be effectively unbeatable, not just "hard."
 //
 // NIGHTMARE also follows a scripted difficulty ramp on top of that solver:
-// each guess is required to land on a specific correct-position count
+// each guess is required to land on a specific correct-position band
 // against the player's real code (attempt 1: 0-1 hits, 2: 1-2, 3: 2-3,
 // 4: 3-4 — so it *can* win outright on guess 4 — and attempt 5 is forced
 // to be the exact code, guaranteeing a win by the 5-guess limit if it
-// hasn't already won). The solver's normal scoring still picks which
-// on-band guess to make, so it still looks like genuine deduction — it's
-// just constrained to guesses that keep the ramp on track.
+// hasn't already won). Which end of each band actually lands is randomized
+// per guess rather than always resolved the same way, and the solver's
+// normal scoring still picks which guess to make among the ones that land
+// on it, so it still looks like genuine deduction — it's just constrained
+// to guesses that keep the ramp on track.
 function cpuPickGuessNightmare(pool, attemptNumber) {
   if (pool.length <= 1) return pool[0] || genRandomCode();
 
@@ -1374,10 +1376,17 @@ function cpuPickGuessNightmare(pool, attemptNumber) {
   const candidateSource = pool.length > FULL_SEARCH_CAP ? shuffleSample(pool, FULL_SEARCH_CAP) : pool;
   let candidatePool = augmentWithProbeGuesses(candidateSource, cpuCorrectPos, cpuForbidden);
 
-  // Restrict to guesses that keep this turn's scripted hit-count band —
-  // this is what actually drives the ramp; everything below just picks
-  // the "smartest-looking" guess among the ones that qualify.
-  let scriptedPool = candidatePool.filter(g => band.includes(hitsVsSecret(g)));
+  // Which end of this turn's band actually lands is randomized each guess
+  // (e.g. attempt 1 is a coin flip between "0 correct" and "1 correct")
+  // rather than always falling out of whichever the scoring heuristic
+  // prefers — so the ramp stays unpredictable while still guaranteed to
+  // stay within the scripted band. Try the randomly-chosen exact count
+  // first; only widen to the full band (then degrade further) if nothing
+  // in the current possibility space happens to hit that exact count.
+  const preferredHits = band[Math.floor(Math.random() * band.length)];
+  let scriptedPool = candidatePool.filter(g => hitsVsSecret(g) === preferredHits);
+  if (scriptedPool.length === 0) scriptedPool = pool.filter(g => hitsVsSecret(g) === preferredHits);
+  if (scriptedPool.length === 0) scriptedPool = candidatePool.filter(g => band.includes(hitsVsSecret(g)));
   if (scriptedPool.length === 0) scriptedPool = pool.filter(g => band.includes(hitsVsSecret(g)));
   if (scriptedPool.length === 0) {
     // Extremely rare fallback (heavily-constrained late-game pool with no
